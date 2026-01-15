@@ -1,0 +1,213 @@
+local Players = game:GetService("Players")
+local UIS = game:GetService("UserInputService")
+local RunService = game:GetService("RunService")
+local Camera = workspace.CurrentCamera
+
+local LP = Players.LocalPlayer
+
+--------------------------------------------------
+-- ESTADO
+--------------------------------------------------
+local AIM_ON = false
+local LOCKED_TARGET = nil
+local CURRENT_PHASE = 1
+local IGNORE_FRIENDS = false
+
+--------------------------------------------------
+-- SUAVIZADO POR FASE
+--------------------------------------------------
+local SMOOTH = {
+	[1] = 0.97, -- cabeza ultra fija
+	[2] = 0.78, -- más suave
+	[3] = 0.55, -- cuesta más
+	[4] = 0.82  -- KOKE cuerpo
+}
+
+--------------------------------------------------
+-- FOV
+--------------------------------------------------
+local FOV_RADIUS = 160
+local SHOW_FOV = true
+local hue = 0
+
+local FOV = Drawing.new("Circle")
+FOV.Filled = false
+FOV.Thickness = 2
+FOV.NumSides = 140 -- círculo perfecto
+FOV.Visible = true
+
+--------------------------------------------------
+-- MENU
+--------------------------------------------------
+local gui = Instance.new("ScreenGui", LP.PlayerGui)
+gui.ResetOnSpawn = false
+
+local menu = Instance.new("Frame", gui)
+menu.Size = UDim2.new(0,340,0,400)
+menu.Position = UDim2.new(0.03,0,0.22,0)
+menu.BackgroundColor3 = Color3.fromRGB(20,20,20)
+Instance.new("UICorner", menu).CornerRadius = UDim.new(0,22)
+
+local title = Instance.new("TextLabel", menu)
+title.Size = UDim2.new(1,0,0,45)
+title.BackgroundTransparency = 1
+title.Text = "💎 MENU DE KOKE"
+title.Font = Enum.Font.GothamBlack
+title.TextScaled = true
+title.TextColor3 = Color3.fromRGB(255,255,255)
+
+--------------------------------------------------
+-- COLORES
+--------------------------------------------------
+local BG_COLORS = {
+	Color3.fromRGB(20,20,20),
+	Color3.fromRGB(40,40,60),
+	Color3.fromRGB(60,25,25),
+	Color3.fromRGB(25,60,40),
+	Color3.fromRGB(45,45,45)
+}
+
+local TXT_COLORS = {
+	Color3.new(1,1,1),
+	Color3.fromRGB(0,170,255),
+	Color3.fromRGB(255,90,90),
+	Color3.fromRGB(170,255,120),
+	Color3.fromRGB(255,220,120)
+}
+
+local bgIndex, txtIndex = 1, 1
+
+--------------------------------------------------
+-- BOTONES
+--------------------------------------------------
+local function button(text,y,callback)
+	local b = Instance.new("TextButton", menu)
+	b.Size = UDim2.new(0.9,0,0,32)
+	b.Position = UDim2.new(0.05,0,y,0)
+	b.BackgroundColor3 = Color3.fromRGB(30,30,30)
+	b.TextColor3 = title.TextColor3
+	b.Text = text
+	b.TextScaled = true
+	b.Font = Enum.Font.Gotham
+	Instance.new("UICorner", b).CornerRadius = UDim.new(0,14)
+	b.MouseButton1Click:Connect(callback)
+	return b
+end
+
+button("FASE 1 - CABEZA FIJA",0.16,function() CURRENT_PHASE=1 end)
+button("FASE 2 - SUAVE",0.27,function() CURRENT_PHASE=2 end)
+button("FASE 3 - DIFÍCIL",0.38,function() CURRENT_PHASE=3 end)
+button("FASE KOKE - CUERPO",0.49,function() CURRENT_PHASE=4 end)
+button("IGNORE FRIENDS",0.60,function() IGNORE_FRIENDS=not IGNORE_FRIENDS end)
+
+button("COLOR FONDO",0.71,function()
+	bgIndex = bgIndex % #BG_COLORS + 1
+	menu.BackgroundColor3 = BG_COLORS[bgIndex]
+end)
+
+button("COLOR TEXTO",0.82,function()
+	txtIndex = txtIndex % #TXT_COLORS + 1
+	title.TextColor3 = TXT_COLORS[txtIndex]
+end)
+
+--------------------------------------------------
+-- INPUT
+--------------------------------------------------
+UIS.InputBegan:Connect(function(input,gp)
+	if gp then return end
+
+	if input.KeyCode == Enum.KeyCode.Z then
+		AIM_ON = not AIM_ON
+		if not AIM_ON then
+			LOCKED_TARGET = nil
+		end
+	end
+
+	if input.KeyCode == Enum.KeyCode.K then
+		menu.Visible = not menu.Visible
+	end
+
+	if input.KeyCode == Enum.KeyCode.V then
+		SHOW_FOV = not SHOW_FOV
+		FOV.Visible = SHOW_FOV
+	end
+end)
+
+--------------------------------------------------
+-- BUSCAR OBJETIVO (SOLO AL ACTIVAR)
+--------------------------------------------------
+local function getTarget()
+	for _,plr in pairs(Players:GetPlayers()) do
+		if plr ~= LP
+		and plr.Character
+		and plr.Character:FindFirstChild("Humanoid")
+		and plr.Character.Humanoid.Health > 0 then
+
+			if IGNORE_FRIENDS and LP:IsFriendsWith(plr.UserId) then
+				continue
+			end
+
+			local head = plr.Character:FindFirstChild("Head")
+			if head then
+				local pos, onscreen = Camera:WorldToViewportPoint(head.Position)
+				if onscreen then
+					local center = Camera.ViewportSize / 2
+					if (Vector2.new(pos.X,pos.Y) - center).Magnitude <= FOV_RADIUS then
+						return plr.Character
+					end
+				end
+			end
+		end
+	end
+	return nil
+end
+
+--------------------------------------------------
+-- LOOP PRINCIPAL
+--------------------------------------------------
+RunService.RenderStepped:Connect(function()
+	-- 🌈 FOV ARCOIRIS CENTRADO
+	hue = (hue + 1) % 255
+	FOV.Color = Color3.fromHSV(hue/255,1,1)
+	FOV.Radius = FOV_RADIUS
+	local center = Camera.ViewportSize / 2
+	FOV.Position = Vector2.new(center.X, center.Y)
+
+	if AIM_ON then
+		if not LOCKED_TARGET then
+			LOCKED_TARGET = getTarget()
+		end
+
+		if LOCKED_TARGET then
+			local targetPos
+
+			if CURRENT_PHASE == 4 then
+				-- 💎 KOKE: RECORRIDO GRANDE POR TODO EL CUERPO
+				local head = LOCKED_TARGET:FindFirstChild("Head")
+				local root = LOCKED_TARGET:FindFirstChild("HumanoidRootPart")
+				local leg = LOCKED_TARGET:FindFirstChild("LeftFoot") or LOCKED_TARGET:FindFirstChild("Left Leg")
+
+				if head and root then
+					local speed = 4 -- MÁS movimiento
+					local wave = (math.sin(tick() * speed) + 1) / 2
+
+					local upper = head.Position:Lerp(root.Position, wave)
+
+					if leg then
+						targetPos = upper:Lerp(leg.Position, wave)
+					else
+						targetPos = upper
+					end
+				end
+			else
+				-- FASES 1 / 2 / 3 → CABEZA
+				targetPos = LOCKED_TARGET.Head.Position
+			end
+
+			if targetPos then
+				local desired = CFrame.new(Camera.CFrame.Position, targetPos)
+				Camera.CFrame = Camera.CFrame:Lerp(desired, SMOOTH[CURRENT_PHASE])
+			end
+		end
+	end
+end)
