@@ -1,0 +1,242 @@
+-- =========================================
+-- AIMBOT KOK3.17 (PC)
+-- =========================================
+
+local Players = game:GetService("Players")
+local UIS = game:GetService("UserInputService")
+local RunService = game:GetService("RunService")
+local Camera = workspace.CurrentCamera
+
+local LP = Players.LocalPlayer
+
+--------------------------------------------------
+-- ESTADO
+--------------------------------------------------
+local AIM_ON = false
+local LOCKED_TARGET = nil
+local CURRENT_PHASE = 1
+local IGNORE_FRIENDS = false
+
+--------------------------------------------------
+-- SUAVIZADO
+--------------------------------------------------
+local SMOOTH = {
+	[1] = 0.97,
+	[2] = 0.80,
+	[3] = 0.60,
+	[4] = 0.82,
+	[5] = 0.70
+}
+
+--------------------------------------------------
+-- FOV
+--------------------------------------------------
+local FOV_RADIUS = 160
+local SHOW_FOV = true
+
+local FOV_COLORS = {
+	Color3.fromRGB(0,200,255), -- celeste
+	Color3.fromRGB(180,0,255)  -- morado
+}
+
+local fovIndex = 1
+local lastSwitch = tick()
+local SWITCH_TIME = 0.5
+
+local FOV = Drawing.new("Circle")
+FOV.Filled = false
+FOV.Thickness = 2
+FOV.NumSides = 140
+FOV.Visible = true
+FOV.Color = FOV_COLORS[1]
+FOV.Radius = FOV_RADIUS
+
+--------------------------------------------------
+-- MENU
+--------------------------------------------------
+local gui = Instance.new("ScreenGui", LP.PlayerGui)
+gui.ResetOnSpawn = false
+
+local menu = Instance.new("Frame", gui)
+menu.Size = UDim2.new(0,280,0,230)
+menu.Position = UDim2.new(0.03,0,0.32,0)
+menu.BackgroundColor3 = Color3.fromRGB(10,10,10)
+menu.BorderSizePixel = 0
+Instance.new("UICorner", menu).CornerRadius = UDim.new(0,14)
+
+local title = Instance.new("TextLabel", menu)
+title.Size = UDim2.new(1,0,0,28)
+title.BackgroundTransparency = 1
+title.Text = "AIMBOT KOK3.17"
+title.Font = Enum.Font.GothamBold
+title.TextSize = 14
+title.TextColor3 = Color3.fromRGB(0,200,255)
+
+--------------------------------------------------
+-- BOTONES FASES
+--------------------------------------------------
+local function phaseBtn(text,x,phase)
+	local b = Instance.new("TextButton", menu)
+	b.Size = UDim2.new(0,40,0,28)
+	b.Position = UDim2.new(0,x,0,36)
+	b.Text = text
+	b.Font = Enum.Font.Gotham
+	b.TextSize = 12
+	b.BackgroundColor3 = Color3.fromRGB(20,20,20)
+	b.TextColor3 = Color3.fromRGB(0,200,255)
+	b.BorderSizePixel = 0
+	Instance.new("UICorner", b).CornerRadius = UDim.new(0,8)
+
+	b.MouseButton1Click:Connect(function()
+		CURRENT_PHASE = phase
+	end)
+end
+
+phaseBtn("1",10,1)
+phaseBtn("2",60,2)
+phaseBtn("3",110,3)
+phaseBtn("4",160,4)
+phaseBtn("5",210,5)
+
+--------------------------------------------------
+-- ESTADOS
+--------------------------------------------------
+local status = Instance.new("TextLabel", menu)
+status.Size = UDim2.new(1,0,0,20)
+status.Position = UDim2.new(0,0,0,70)
+status.BackgroundTransparency = 1
+status.Text = "AIM: OFF"
+status.Font = Enum.Font.Gotham
+status.TextSize = 11
+status.TextColor3 = Color3.fromRGB(0,200,255)
+
+local friendsTxt = Instance.new("TextLabel", menu)
+friendsTxt.Size = UDim2.new(1,0,0,20)
+friendsTxt.Position = UDim2.new(0,0,0,90)
+friendsTxt.BackgroundTransparency = 1
+friendsTxt.Text = "IGNORE FRIENDS: OFF"
+friendsTxt.Font = Enum.Font.Gotham
+friendsTxt.TextSize = 11
+friendsTxt.TextColor3 = Color3.fromRGB(0,200,255)
+
+--------------------------------------------------
+-- BOTONES OPCIONES
+--------------------------------------------------
+local function optBtn(text,y,callback)
+	local b = Instance.new("TextButton", menu)
+	b.Size = UDim2.new(0.9,0,0,26)
+	b.Position = UDim2.new(0.05,0,y,0)
+	b.Text = text
+	b.Font = Enum.Font.Gotham
+	b.TextSize = 11
+	b.BackgroundColor3 = Color3.fromRGB(20,20,20)
+	b.TextColor3 = Color3.fromRGB(0,200,255)
+	b.BorderSizePixel = 0
+	Instance.new("UICorner", b).CornerRadius = UDim.new(0,8)
+	b.MouseButton1Click:Connect(callback)
+end
+
+optBtn("TOGGLE IGNORE FRIENDS",0.50,function()
+	IGNORE_FRIENDS = not IGNORE_FRIENDS
+	friendsTxt.Text = IGNORE_FRIENDS and "IGNORE FRIENDS: ON" or "IGNORE FRIENDS: OFF"
+end)
+
+optBtn("TOGGLE FOV",0.65,function()
+	SHOW_FOV = not SHOW_FOV
+	FOV.Visible = SHOW_FOV
+end)
+
+--------------------------------------------------
+-- INPUT
+--------------------------------------------------
+UIS.InputBegan:Connect(function(input,gp)
+	if gp then return end
+
+	if input.KeyCode == Enum.KeyCode.Z then
+		AIM_ON = not AIM_ON
+		status.Text = AIM_ON and "AIM: ON" or "AIM: OFF"
+		if not AIM_ON then
+			LOCKED_TARGET = nil
+		end
+	end
+
+	if input.KeyCode == Enum.KeyCode.K then
+		menu.Visible = not menu.Visible
+	end
+end)
+
+--------------------------------------------------
+-- TARGET
+--------------------------------------------------
+local function getTarget()
+	for _,plr in pairs(Players:GetPlayers()) do
+		if plr ~= LP
+		and plr.Character
+		and plr.Character:FindFirstChild("Humanoid")
+		and plr.Character.Humanoid.Health > 0 then
+
+			if IGNORE_FRIENDS and LP:IsFriendsWith(plr.UserId) then
+				continue
+			end
+
+			local head = plr.Character:FindFirstChild("Head")
+			if head then
+				local pos, onscreen = Camera:WorldToViewportPoint(head.Position)
+				if onscreen then
+					local center = Camera.ViewportSize / 2
+					if (Vector2.new(pos.X,pos.Y) - center).Magnitude <= FOV_RADIUS then
+						return plr.Character
+					end
+				end
+			end
+		end
+	end
+end
+
+--------------------------------------------------
+-- LOOP
+--------------------------------------------------
+RunService.RenderStepped:Connect(function()
+	local center = Camera.ViewportSize / 2
+	FOV.Position = Vector2.new(center.X, center.Y)
+
+	if tick() - lastSwitch >= SWITCH_TIME then
+		lastSwitch = tick()
+		fovIndex = fovIndex % #FOV_COLORS + 1
+		FOV.Color = FOV_COLORS[fovIndex]
+	end
+
+	if AIM_ON then
+		if not LOCKED_TARGET then
+			LOCKED_TARGET = getTarget()
+		end
+
+		if LOCKED_TARGET then
+			local targetPos
+
+			if CURRENT_PHASE == 4 then
+				local head = LOCKED_TARGET:FindFirstChild("Head")
+				local root = LOCKED_TARGET:FindFirstChild("HumanoidRootPart")
+				local leg = LOCKED_TARGET:FindFirstChild("LeftFoot") or LOCKED_TARGET:FindFirstChild("Left Leg")
+
+				if head and root then
+					local wave = (math.sin(tick()*4)+1)/2
+					local upper = head.Position:Lerp(root.Position, wave)
+					targetPos = leg and upper:Lerp(leg.Position, wave) or upper
+				end
+			elseif CURRENT_PHASE == 5 then
+				local root = LOCKED_TARGET:FindFirstChild("HumanoidRootPart")
+				if root then
+					targetPos = root.Position + Vector3.new(0,1,0)
+				end
+			else
+				targetPos = LOCKED_TARGET.Head.Position
+			end
+
+			if targetPos then
+				local cf = CFrame.new(Camera.CFrame.Position, targetPos)
+				Camera.CFrame = Camera.CFrame:Lerp(cf, SMOOTH[CURRENT_PHASE])
+			end
+		end
+	end
+end)
