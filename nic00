@@ -1,0 +1,80 @@
+local function crearBarra(character)
+    if character:FindFirstChild("Head") and character:FindFirst-- Script: koke
+local Players = game:GetService("Players")
+Child("Humanoid") then
+        if character.Head:FindFirstChild("koke") then return end
+
+        local humanoid = character.Humanoid
+        local head = character.Head
+
+        local billboard = Instance.new("BillboardGui")
+        billboard.Name = "koke"
+        billboard.Adornee = head
+        billboard.Size = UDim2.new(3.5, 0, 1, 0)
+        billboard.StudsOffset = Vector3.new(0, 2.3, 0)
+        billboard.AlwaysOnTop = true
+        billboard.Parent = head
+
+        -- Nombre pequeño
+        local nameLabel = Instance.new("TextLabel")
+        nameLabel.Size = UDim2.new(1, 0, 0.3, 0)
+        nameLabel.BackgroundTransparency = 1
+        nameLabel.Text = character.Name
+        nameLabel.TextScaled = true
+        nameLabel.Font = Enum.Font.Gotham
+        nameLabel.TextColor3 = Color3.fromRGB(255,255,255)
+        nameLabel.Parent = billboard
+
+        -- Fondo
+        local bg = Instance.new("Frame")
+        bg.Position = UDim2.new(0,0,0.4,0)
+        bg.Size = UDim2.new(1,0,0.25,0)
+        bg.BackgroundColor3 = Color3.fromRGB(25,25,25)
+        bg.BorderSizePixel = 0
+        bg.Parent = billboard
+
+        Instance.new("UICorner", bg).CornerRadius = UDim.new(0.4,0)
+
+        -- Barra
+        local bar = Instance.new("Frame")
+        bar.Size = UDim2.new(1,0,1,0)
+        bar.BackgroundColor3 = Color3.fromRGB(0,140,255)
+        bar.BorderSizePixel = 0
+        bar.Parent = bg
+
+        Instance.new("UICorner", bar).CornerRadius = UDim.new(0.4,0)
+
+        humanoid.HealthChanged:Connect(function(health)
+            local percent = math.clamp(health / humanoid.MaxHealth, 0, 1)
+            bar.Size = UDim2.new(percent, 0, 1, 0)
+
+            if percent <= 0.3 then
+                bar.BackgroundColor3 = Color3.fromRGB(255,0,0)
+            else
+                bar.BackgroundColor3 = Color3.fromRGB(0,140,255)
+            end
+        end)
+    end
+end
+
+-- APLICAR INSTANTE A TODOS LOS QUE YA ESTÁN
+for _,player in pairs(Players:GetPlayers()) do
+    if player.Character then
+        crearBarra(player.Character)
+    end
+
+    player.CharacterAdded:Connect(function(char)
+        char:WaitForChild("Head")
+        char:WaitForChild("Humanoid")
+        crearBarra(char)
+    end)
+end
+
+-- NUEVOS JUGADORES
+Players.PlayerAdded:Connect(function(player)
+    player.CharacterAdded:Connect(function(char)
+        char:WaitForChild("Head")
+        char:WaitForChild("Humanoid")
+        crearBarra(char)
+    end)
+end)
