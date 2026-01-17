@@ -1,0 +1,106 @@
+--// ESP con ajustes visuales
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local Camera = workspace.CurrentCamera
+local LocalPlayer = Players.LocalPlayer
+
+local ESP = {}
+
+function createLine()
+    local line = Drawing.new("Line")
+    line.Thickness = 1
+    line.Color = Color3.fromRGB(0, 255, 255)
+    line.Transparency = 1
+    return line
+end
+
+function createText(size, transparency)
+    local text = Drawing.new("Text")
+    text.Size = size
+    text.Center = true
+    text.Outline = true
+    text.Color = Color3.fromRGB(255, 255, 255)
+    text.Transparency = transparency
+    return text
+end
+
+function addPlayer(plr)
+    if plr == LocalPlayer then return end
+
+    ESP[plr] = {
+        TL = createLine(), TR = createLine(), BL = createLine(), BR = createLine(),
+        Name = createText(12, 0.6),      -- 👈 Nombre más pequeño y más transparente
+        Weapon = createText(10, 1)      -- 👈 Arma más chico
+    }
+end
+
+for _,p in pairs(Players:GetPlayers()) do
+    addPlayer(p)
+end
+
+Players.PlayerAdded:Connect(addPlayer)
+Players.PlayerRemoving:Connect(function(p)
+    if ESP[p] then
+        for _,v in pairs(ESP[p]) do v:Remove() end
+        ESP[p] = nil
+    end
+end)
+
+RunService.RenderStepped:Connect(function()
+    for plr,draw in pairs(ESP) do
+        local char = plr.Character
+        local hrp = char and char:FindFirstChild("HumanoidRootPart")
+        local head = char and char:FindFirstChild("Head")
+        local hum = char and char:FindFirstChildOfClass("Humanoid")
+
+        if hrp and head and hum and hum.Health > 0 then
+            local pos, onScreen = Camera:WorldToViewportPoint(hrp.Position)
+            if onScreen then
+                local scale = 1 / (pos.Z / 50)
+                local w = 35 * scale
+                local h = 50 * scale
+
+                local TL = Vector2.new(pos.X - w, pos.Y - h)
+                local TR = Vector2.new(pos.X + w, pos.Y - h)
+                local BL = Vector2.new(pos.X - w, pos.Y + h)
+                local BR = Vector2.new(pos.X + w, pos.Y + h)
+
+                draw.TL.From = TL; draw.TL.To = TR
+                draw.TR.From = TR; draw.TR.To = BR
+                draw.BR.From = BR; draw.BR.To = BL
+                draw.BL.From = BL; draw.BL.To = TL
+
+                -- Nombre arriba (más suave)
+                local headPos = Camera:WorldToViewportPoint(head.Position + Vector3.new(0,0.5,0))
+                draw.Name.Position = Vector2.new(headPos.X, headPos.Y)
+                draw.Name.Text = plr.Name
+                draw.Name.Visible = true
+
+                -- Arma abajo (chica pero se escala con distancia)
+                local toolName = "None"
+                for _,tool in pairs(char:GetChildren()) do
+                    if tool:IsA("Tool") then
+                        toolName = tool.Name
+                        break
+                    end
+                end
+
+                local footPos = Camera:WorldToViewportPoint(hrp.Position - Vector3.new(0,3,0))
+                draw.Weapon.Position = Vector2.new(footPos.X, footPos.Y)
+                draw.Weapon.Text = toolName
+                draw.Weapon.Size = math.clamp(8 + (scale * 10), 8, 16) -- 👈 se ve de lejos
+                draw.Weapon.Visible = true
+
+                for _,v in pairs(draw) do
+                    if v.ClassName ~= "Text" then
+                        v.Visible = true
+                    end
+                end
+            else
+                for _,v in pairs(draw) do v.Visible = false end
+            end
+        else
+            for _,v in pairs(draw) do v.Visible = false end
+        end
+    end
+end)
