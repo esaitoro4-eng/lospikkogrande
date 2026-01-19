@@ -1,0 +1,136 @@
+--// Servicios
+local Players = game:GetService("Players")
+local UIS = game:GetService("UserInputService")
+local RunService = game:GetService("RunService")
+local LocalPlayer = Players.LocalPlayer
+local Camera = workspace.CurrentCamera
+
+--// Config
+local AimEnabled = false
+local AimPart = "Head" -- "Head" o "UpperTorso"
+local FOV = 160
+local LockedTarget = nil
+local IgnoreFriends = true
+
+--// UI
+local gui = Instance.new("ScreenGui", game.CoreGui)
+gui.Name = "AimMenu"
+
+local frame = Instance.new("Frame", gui)
+frame.Size = UDim2.fromScale(0.2,0.22)
+frame.Position = UDim2.fromScale(0.02,0.36)
+frame.BackgroundColor3 = Color3.fromRGB(0,0,0)
+frame.BorderSizePixel = 0
+
+local title = Instance.new("TextLabel", frame)
+title.Size = UDim2.fromScale(1,0.25)
+title.BackgroundTransparency = 1
+title.Text = "AIM ASSIST"
+title.TextColor3 = Color3.fromRGB(255,0,0)
+title.TextScaled = false
+title.TextSize = 18
+title.Font = Enum.Font.GothamBold
+
+local status = Instance.new("TextLabel", frame)
+status.Position = UDim2.fromScale(0,0.28)
+status.Size = UDim2.fromScale(1,0.2)
+status.BackgroundTransparency = 1
+status.Text = "Estado: OFF (Z)"
+status.TextColor3 = Color3.fromRGB(255,0,0)
+status.TextSize = 14
+status.Font = Enum.Font.Gotham
+
+local partText = Instance.new("TextLabel", frame)
+partText.Position = UDim2.fromScale(0,0.48)
+partText.Size = UDim2.fromScale(1,0.2)
+partText.BackgroundTransparency = 1
+partText.Text = "Parte: Head (X)"
+partText.TextColor3 = Color3.fromRGB(255,0,0)
+partText.TextSize = 14
+partText.Font = Enum.Font.Gotham
+
+local friendText = Instance.new("TextLabel", frame)
+friendText.Position = UDim2.fromScale(0,0.68)
+friendText.Size = UDim2.fromScale(1,0.2)
+friendText.BackgroundTransparency = 1
+friendText.Text = "Ignore Friends: ON (C)"
+friendText.TextColor3 = Color3.fromRGB(255,0,0)
+friendText.TextSize = 14
+friendText.Font = Enum.Font.Gotham
+
+--// Funciones
+local function IsFriend(plr)
+	if not IgnoreFriends then return false end
+	return LocalPlayer:IsFriendsWith(plr.UserId)
+end
+
+local function GetClosestTarget()
+	local closest, dist = nil, math.huge
+
+	for _,plr in pairs(Players:GetPlayers()) do
+		if plr ~= LocalPlayer
+			and not IsFriend(plr)
+			and plr.Character
+			and plr.Character:FindFirstChild(AimPart)
+			and plr.Character:FindFirstChild("Humanoid")
+			and plr.Character.Humanoid.Health > 0 then
+
+			local part = plr.Character[AimPart]
+			local pos, onScreen = Camera:WorldToViewportPoint(part.Position)
+
+			if onScreen then
+				local mag = (Vector2.new(pos.X,pos.Y) -
+					Vector2.new(Camera.ViewportSize.X/2,Camera.ViewportSize.Y/2)).Magnitude
+
+				if mag < dist and mag < FOV then
+					dist = mag
+					closest = part
+				end
+			end
+		end
+	end
+
+	return closest
+end
+
+--// Loop
+RunService.RenderStepped:Connect(function()
+	if AimEnabled then
+		if not LockedTarget or not LockedTarget.Parent then
+			LockedTarget = GetClosestTarget()
+		end
+
+		if LockedTarget then
+			Camera.CFrame = CFrame.new(Camera.CFrame.Position, LockedTarget.Position)
+		end
+	end
+end)
+
+--// Controles
+UIS.InputBegan:Connect(function(input, gpe)
+	if gpe then return end
+
+	if input.KeyCode == Enum.KeyCode.Z then
+		AimEnabled = not AimEnabled
+		if not AimEnabled then
+			LockedTarget = nil
+		end
+		status.Text = "Estado: " .. (AimEnabled and "ON" or "OFF") .. " (Z)"
+	end
+
+	if input.KeyCode == Enum.KeyCode.X then
+		AimPart = AimPart == "Head" and "UpperTorso" or "Head"
+		partText.Text = "Parte: " .. AimPart .. " (X)"
+		if AimEnabled then
+			LockedTarget = nil
+		end
+	end
+
+	if input.KeyCode == Enum.KeyCode.C then
+		IgnoreFriends = not IgnoreFriends
+		friendText.Text = "Ignore Friends: " .. (IgnoreFriends and "ON" or "OFF") .. " (C)"
+		if AimEnabled then
+			LockedTarget = nil
+		end
+	end
+end)
