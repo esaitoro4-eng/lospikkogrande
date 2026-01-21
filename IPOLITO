@@ -1,0 +1,237 @@
+local Players = game:GetService("Players")
+local UIS = game:GetService("UserInputService")
+local RunService = game:GetService("RunService")
+
+local player = Players.LocalPlayer
+local camera = workspace.CurrentCamera
+
+-- ===== CONFIG =====
+local AimEnabled = false
+local MenuOpen = true
+local FOVRadius = 150
+local ShowFOV = true
+
+local AimKey = Enum.KeyCode.E
+local MenuKey = Enum.KeyCode.F4
+
+local CurrentTarget = nil
+local AimLevel = 1 -- 1 = el mejor / más pegado
+local TargetMode = "HEAD" -- "HEAD" / "CHEST"
+local IgnoreFriendly = true
+
+local MenuTitleText = "AIM MENU"
+local WaitingForBind = nil
+local WaitingForText = false
+
+-- ===== GUI =====
+local gui = Instance.new("ScreenGui")
+gui.Name = "AimMenu"
+gui.ResetOnSpawn = false
+gui.Parent = player:WaitForChild("PlayerGui")
+
+local frame = Instance.new("Frame", gui)
+frame.Size = UDim2.fromScale(0.30,0.46)
+frame.Position = UDim2.fromScale(0.05,0.26)
+frame.BackgroundColor3 = Color3.fromRGB(30,30,30)
+frame.BorderSizePixel = 0
+frame.Active = true
+frame.Draggable = true
+Instance.new("UICorner", frame).CornerRadius = UDim.new(0,10)
+
+local function makeLabel(text, posY, bold)
+	local l = Instance.new("TextLabel", frame)
+	l.Position = UDim2.fromScale(0.06, posY)
+	l.Size = UDim2.fromScale(0.88, 0.075)
+	l.BackgroundTransparency = 1
+	l.TextColor3 = Color3.fromRGB(140,255,190)
+	l.TextXAlignment = Enum.TextXAlignment.Left
+	l.TextYAlignment = Enum.TextYAlignment.Center
+	l.Font = bold and Enum.Font.GothamBold or Enum.Font.Gotham
+	l.TextSize = bold and 16 or 13
+	l.Text = text
+	l.TextWrapped = true
+	return l
+end
+
+local title    = makeLabel(MenuTitleText.." (click to rename)", 0.03, true)
+local status   = makeLabel("Status: OFF", 0.12)
+local levelLb  = makeLabel("Aim Level: "..AimLevel.." (1-9)", 0.21)
+local modeLb   = makeLabel("Target: "..TargetMode, 0.30)
+local ignoreLb = makeLabel("Ignore Friendly: "..(IgnoreFriendly and "ON" or "OFF"), 0.39)
+local fovLb    = makeLabel("Show FOV: "..(ShowFOV and "ON" or "OFF"), 0.48)
+local aimBind  = makeLabel("Aim Key: "..AimKey.Name.." (click)", 0.57)
+local menuBind = makeLabel("Menu Key: "..MenuKey.Name.." (click)", 0.66)
+local infoLb   = makeLabel("Click items to modify • Type to rename menu", 0.80)
+
+-- ===== FOV CIRCLE =====
+local fovCircle = Drawing and Drawing.new and Drawing.new("Circle") or nil
+if fovCircle then
+	fovCircle.Radius = FOVRadius
+	fovCircle.Color = Color3.fromRGB(140,255,190)
+	fovCircle.Thickness = 1.5
+	fovCircle.Filled = false
+end
+
+-- ===== BOTONES / MODIFICABLE =====
+levelLb.InputBegan:Connect(function(i)
+	if i.UserInputType == Enum.UserInputType.MouseButton1 then
+		AimLevel += 1
+		if AimLevel > 9 then AimLevel = 1 end
+		levelLb.Text = "Aim Level: "..AimLevel.." (1-9)"
+	end
+end)
+
+modeLb.InputBegan:Connect(function(i)
+	if i.UserInputType == Enum.UserInputType.MouseButton1 then
+		TargetMode = (TargetMode=="HEAD") and "CHEST" or "HEAD"
+		modeLb.Text = "Target: "..TargetMode
+	end
+end)
+
+ignoreLb.InputBegan:Connect(function(i)
+	if i.UserInputType == Enum.UserInputType.MouseButton1 then
+		IgnoreFriendly = not IgnoreFriendly
+		ignoreLb.Text = "Ignore Friendly: "..(IgnoreFriendly and "ON" or "OFF")
+	end
+end)
+
+fovLb.InputBegan:Connect(function(i)
+	if i.UserInputType == Enum.UserInputType.MouseButton1 then
+		ShowFOV = not ShowFOV
+		fovLb.Text = "Show FOV: "..(ShowFOV and "ON" or "OFF")
+	end
+end)
+
+aimBind.InputBegan:Connect(function(i)
+	if i.UserInputType == Enum.UserInputType.MouseButton1 then
+		aimBind.Text = "Press a key..."
+		WaitingForBind = "AIM"
+	end
+end)
+
+menuBind.InputBegan:Connect(function(i)
+	if i.UserInputType == Enum.UserInputType.MouseButton1 then
+		menuBind.Text = "Press a key..."
+		WaitingForBind = "MENU"
+	end
+end)
+
+title.InputBegan:Connect(function(i)
+	if i.UserInputType == Enum.UserInputType.MouseButton1 then
+		title.Text = "Type new menu name..."
+		MenuTitleText = ""
+		WaitingForText = true
+	end
+end)
+
+-- ===== NPC TARGET =====
+-- NPC debe tener: Humanoid + Head
+-- (Opcional) BoolValue "Friendly" = true para aliados
+local function GetClosestNPC()
+	local closest, dist = nil, math.huge
+	for _,m in pairs(workspace:GetChildren()) do
+		if m:IsA("Model") and m:FindFirstChild("Humanoid") and m:FindFirstChild("Head") and m ~= player.Character then
+			if IgnoreFriendly then
+				local tag = m:FindFirstChild("Friendly")
+				if tag and tag:IsA("BoolValue") and tag.Value then
+					continue
+				end
+			end
+
+			local part = m.Head
+			if TargetMode=="CHEST" then
+				part = m:FindFirstChild("UpperTorso") or m:FindFirstChild("Torso") or m.Head
+			end
+
+			local pos, on = camera:WorldToViewportPoint(part.Position)
+			if on then
+				local d = (Vector2.new(pos.X,pos.Y) - UIS:GetMouseLocation()).Magnitude
+				if d < dist and d < FOVRadius then
+					dist = d
+					closest = part
+				end
+			end
+		end
+	end
+	return closest
+end
+
+-- ===== AIM (Nivel 1 = súper pegado) =====
+RunService.RenderStepped:Connect(function()
+	-- FOV visible
+	if fovCircle then
+		fovCircle.Visible = ShowFOV
+		if ShowFOV then
+			local m = UIS:GetMouseLocation()
+			fovCircle.Position = Vector2.new(m.X, m.Y)
+			fovCircle.Radius = FOVRadius
+		end
+	end
+
+	if AimEnabled then
+		if not CurrentTarget or not CurrentTarget.Parent then
+			CurrentTarget = GetClosestNPC()
+		end
+		if CurrentTarget then
+			local camPos = camera.CFrame.Position
+			local targetPos = CurrentTarget.Position
+			local targetCF = CFrame.new(camPos, targetPos)
+
+			-- 🔥 Nivel 1 = MUY fuerte / 9 = muy suave
+			local smooth = math.clamp((11 - AimLevel)/10, 0.25, 0.99)
+
+			camera.CFrame = camera.CFrame:Lerp(targetCF, smooth)
+		end
+	end
+end)
+
+-- ===== INPUT =====
+UIS.InputBegan:Connect(function(input, gp)
+	if gp then return end
+
+	-- Rebind teclas
+	if WaitingForBind then
+		if WaitingForBind == "AIM" then
+			AimKey = input.KeyCode
+			aimBind.Text = "Aim Key: "..AimKey.Name.." (click)"
+		elseif WaitingForBind == "MENU" then
+			MenuKey = input.KeyCode
+			menuBind.Text = "Menu Key: "..MenuKey.Name.." (click)"
+		end
+		WaitingForBind = nil
+		return
+	end
+
+	-- Toggle AIM
+	if input.KeyCode == AimKey then
+		AimEnabled = not AimEnabled
+		status.Text = "Status: "..(AimEnabled and "ON" or "OFF")
+		if not AimEnabled then CurrentTarget = nil end
+	end
+
+	-- Toggle MENU
+	if input.KeyCode == MenuKey then
+		MenuOpen = not MenuOpen
+		frame.Visible = MenuOpen
+	end
+end)
+
+-- ===== RENOMBRAR MENÚ =====
+UIS.InputChanged:Connect(function(input)
+	if WaitingForText and input.UserInputType == Enum.UserInputType.Keyboard then
+		if input.KeyCode == Enum.KeyCode.Return then
+			if MenuTitleText == "" then MenuTitleText = "AIM MENU" end
+			title.Text = MenuTitleText.." (click to rename)"
+			WaitingForText = false
+		elseif input.KeyCode == Enum.KeyCode.Backspace then
+			MenuTitleText = MenuTitleText:sub(1, -2)
+			title.Text = MenuTitleText
+		else
+			local c = input.KeyCode.Name
+			if #c == 1 then
+				MenuTitleText ..= c
+				title.Text = MenuTitleText
+			end
+		end
+	end
+end)
